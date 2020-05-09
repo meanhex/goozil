@@ -31,24 +31,25 @@ def get_serialPort():
             _reslut.append(_port) # exception 없이 통과하면 port 배열에 추가
         except (OSError, serial.SerialException):
             pass # exception 발생시 pass
-
+    del(_ser)
     return _reslut
 
 ports = get_serialPort()
 if len(ports) > 0:
-    resultFind = false
+    resultFind = False
     for port in ports:
         print ("check available port :%s" % port)
-        ser = serial.Serial(port)
+        ser = serial.Serial()
+        ser.port = port
         ser.baudrate = FIX_BAUDRATE
-
+        msgReadInit = ''
         timeStart = time.time()
         ser.open()
-        while true:
+        while True:
             if ser.inWaiting() > 0:
                 msgReadInit += ser.read()
             if msgReadInit in msgInit:
-                resultFind = true
+                resultFind = True
                 break
             elif time.time() > timeStart + 5:
                 breakd
@@ -61,7 +62,7 @@ if len(ports) > 0:
         else:
             pirnt ("fail")
             ser.close()
-    if resultFind == false:
+    if resultFind == False:
         print("cant find available device")
 
 else:
