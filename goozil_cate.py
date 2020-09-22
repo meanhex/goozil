@@ -31,9 +31,9 @@ class Shop :
     def getCate(self,_index) :
         if _index >= len(self.cates) :
             return None
-        if 'http://' in self.cates[_index] or 'https://' in self.cates[_index] :
-            return self.cates[_index]
-        return self.shop + self.cates[_index]
+        if 'http://' in self.cates[_index].href or 'https://' in self.cates[_index].href :
+            return self.cates[_index].href
+        return self.shop + self.cates[_index].href
     def show(self) :
         print('#%s' % self.title)
         for _cate in self.cates : 
@@ -69,6 +69,41 @@ def get_shoplist(_shop_list, _tag_keys, _cate_keys) :
             print('cate length is short than 3')
     return _shop_list
 
+def get_page(url) :
+    bs = BeautifulSoup(urlopen(url), "html.parser")
+    _body = bs.find('body')
+    _href_results = _body.find_all('a', href=re.compile('.[&]page[=].'))
+    _page_href = [x.get('href') for x in _href_results] # href만 추출
+    _page_href = list({x : x for x in _page_href}.values()) # href 기준으로 중복을 제거
+    return [int(x[x.find('&page=') + 6]) for x in _page_href] # int값으로 추출한 리스트 반환
+
+def get_item(url) :
+    bs = BeautifulSoup(urlopen(url), "html.parser")
+    _body = bs.find('body')
+    _href_results = _body.find_all('a', href=re.compile('.[?]product_no[=].')) 
+    _item_href = [x.get('href') for x in _href_results] # href만 추출
+    _item_href = list({x : x for x in _item_href}.values()) # href 기준으로 중복을 제거
+    result = list()
+    for x in  _item_href:
+        num_start = x.find('product_no=') + len('product_no=') # 상품 번호 시작위치
+        num_end = x.find('&', num_start) # 상품번호 종료 위치
+        result.append({'num' : x[num_start : num_end], 'url' : x }) # 상품 url과 상품 번호를 추출한 2차원 배열
+    return result
+    
+def get_fullitem(xshop) :
+    result = list()
+    for i in range(0, len(xshop.cates) -1) :
+        cateUrl = xshop.getCate(i)
+        print('cate %d result = %s' % (i, xshop.cates[i].title))
+        pages = get_page(cateUrl) # i번째 카테고리에서 페이지를 불러옴
+        if len(pages) < 1 : 
+            continue
+        cate_items = list() # i번째 카테고리 내 모든 페이지의 상품 url, 상품 번호 
+        for page in range(min(pages), max(pages)) : # 첫번째 페이지부터 마지막 페이지까지 탐색
+            cate_items.extend(get_item(cateUrl + '&page=' + str(page))) # 아이템 탐색결과 저장
+        result.append(cate_items)
+    return result
+
 if __name__ == '__main__' :
     shop_list = list() # shop list, must started http://, ended /
     shop_list.append(Shop("http://www.da-sara.com/"))
@@ -84,9 +119,15 @@ if __name__ == '__main__' :
     tag_keys.append('img')
 
     cate_words = list() # category keyword list : category for used item
-    cate_words.append(r'.list[.]+\w+[?].') # ~/list.□?~
+    cate_words.append(r'.list[.]+\w+[?].') # ~list.□?~
     cate_keys = [re.compile(x) for x in cate_words] # 정규식 추가
 
     shop_list = get_shoplist(shop_list, tag_keys, cate_keys)
     for x in shop_list : 
         x.show()
+    
+    items = list()
+    for _shop in shop_list :
+        items.append(get_fullitem(_shop))
+    
+    print('done')
