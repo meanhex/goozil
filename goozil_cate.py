@@ -3,22 +3,13 @@
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
 import re
+import time
 
-PAGE_KEY = '&page='             # page로 추정되는 위치의 시작
-ITEM_KEY = 'product_no='        # item로 추정되는 위치의 시작
-ITEM_END_KEY = '&'              # item로 추정되는 위치의 끝
+PAGE_KEY = '&page='                             # page로 추정되는 위치의 시작          
+ITEM_KEY = {re.compile('.product_no=.'),        # item로 추정되는 위치의 시작
+            re.compile('./goods/.')}
+SOLDOUT_KEY = {'soldout', 'sellout', '품절'}
 # ▼
-
-# ▼target class
-# class Link :
-#     def __init__(self, title, href) :
-#         super().__init__()
-#         self.title = title
-#         self.href = href
-#     def __setitem__(self, title, href) :
-#         self.title = title
-#         self.href = href
-
 class Shop :
     def __init__(self, shop) :
         super().__init__()
@@ -29,12 +20,6 @@ class Shop :
         self.cates = cates
     def getCates(self) :
         return self.cates
-    # def getCate(self,_index) :
-    #     if _index >= len(self.cates) :
-    #         return None
-    #     if 'http://' in self.cates[_index].href or 'https://' in self.cates[_index].href :
-    #         return self.cates[_index].href
-    #     return self.shop + self.cates[_index].href
     def show(self) :
         print('#%s' % self.title)
         for _cate in self.cates : 
@@ -77,93 +62,108 @@ def get_cate(xshop, xtag_keys, xcate_keys) :
     return
 
 def get_bodytag(xurl) :
-    return BeautifulSoup(urlopen(xurl), "html.parser").find('body') # url의 body를 반환
+    body = None
+    while True :
+        try :
+            body = BeautifulSoup(urlopen(xurl), "html.parser").find('body') # url의 body를 반환
+            break
+        except :
+            print('# get body error')
+            continue
 
-def get_href(xbs, xkey) :
-    href_results = xbs.find_all('a', href=xkey) # href속성에 key가 존재하는 'a' tag를 검색함
-    hrefs = [x.get('href') for x in href_results] # href만 추출
-    hrefs = list({x : x for x in hrefs}.values()) # 중복 제거
-    return hrefs
+    return body
 
-def get_href_parent(xbs, xkey, conds) :
-    href_results = xbs.find_all('a', href=xkey) # href속성에 key가 존재하는 'a' tag를 검색함
+def get_tag(xtag, xbs, xkey) :
+    return xbs.find_all(xtag, href=xkey) # href속성에 key가 존재하는 tag를 반환
 
-    parent_hrefs = list() # 검색 결과와 부모수가 저장될 dict list
-    for _href in href_results :
-        href_parent = _href.parent
+def get_tag_parent(xtag, xbs, xkey) :
+    tags = get_tag(xtag, xbs, xkey)
+
+    deep_tags = list() # 검색 결과와 부모수가 저장될 dict list
+    for _tag in tags :
+        parent = _tag.parent
         c_parent = 0
-        while href_parent != None :
+        while str(type(parent)) == "<class 'bs4.element.Tag'>" :
             c_parent += 1
-            href_parent = href_parent.parent
-        parent_hrefs.append({'result' : _href, 'parent' : c_parent})
+            parent = parent.parent
+        deep_tags.append({'tag' : _tag, 'parent' : c_parent})
 
-    if len(parent_hrefs) > 0 :
+    if len(deep_tags) > 0 :
         afsdfasdf = 1
-    
 
-    cond_hrefs = list() # 부모수와 비교해 중복 제거한 dict list
-    for _href in parent_hrefs :
+    less_tags = list() # 부모수가 적은, 높은 태그만 남긴 dict list
+    for _tag in deep_tags :
         b_match = False
-        _temp_cond_hrefs = list(cond_hrefs)
-        for _cond in _temp_cond_hrefs :
-            if _href.get('result').get('href') == _cond.get('result').get('href') :
-                b_match = True
-                if _href.get('parent') < _cond.get('parent') :
-                    cond_hrefs.remove(_cond)
-                    cond_hrefs.append(_href)
-        if b_match == False :
-            cond_hrefs.append(_href)
+        temp_parent_tags = list(less_tags)
+        for _cond in temp_parent_tags :
+            if _tag.get('tag').get('href') == _cond.get('tag').get('href') : # 중복된 href를 가질때
+                b_match = True # 중복 플래그를 True
+                if _tag.get('parent') < _cond.get('parent') : # 신규 값이 보다 상위 태그일때
+                    less_tags.remove(_cond)
+                    less_tags.append(_tag) # 기존 값을 삭제하고 신규 값을 추가
+                elif _tag.get('parent') == _cond.get('parent') : # 깊이가 같을때
+                    c_next_tag, c_next_cond = 0, 0
+                    for _next in _tag.get('tag').next_siblings :
+                        c_next_tag += 1
+                    for _next in _cond.get('tag').next_siblings :
+                        c_next_cond += 1
+                    if c_next_tag > c_next_cond : # 형제수가 많은 쪽을 저장
+                        less_tags.remove(_cond)
+                        less_tags.append(_tag) # 기존 값을 삭제하고 신규 값을 추가
+                    elif c_next_tag == c_next_cond : # 형제수가 같을땐 무조건 부모를 저장
+                        less_tags.remove(_cond)
+                        less_tags.append({'tag' : _tag.get('tag').parent, 'parent' : -1}) # 기존 값을 삭제하고 신규 값을 추가
 
-    hrefs = list()
-    for _href in cond_hrefs :
-        result = _href.get('result').prettify()
-        href_next = _href.get('result').next_siblings
-        if href_next != None :
-            for _next in href_next :
-                vbasdf = 1
-                result += _next.prettify() if str(type(_next)) == "<class 'bs4.element.Tag'>" else _next
-        # while href_next != None and str(type(href_next)) == "<class 'bs4.element.Tag'>":
-        #     result += href_next.prettify()
-        #     href_next = href_next.next_sibling
 
-        cnods_match = [result.count(x) for x in conds]
-        if max(cnods_match) == 0 :
-            hrefs.append(_href.get('result').get('href'))
-    
-    #hrefs = [x.get('href') for x in href_results] # href만 추출
-    hrefs = list({x : x for x in hrefs}.values()) # 중복 제거
-    return hrefs
+        if b_match == False : # 중복 결과가 없을때
+            less_tags.append(_tag) # 신규 값을 추가
+    return less_tags
 
 def get_page(xurl) :
     body = get_bodytag(xurl)
-    page_href = get_href(body, re.compile('.' + PAGE_KEY + '.'))
+    if body == None :
+        return 0, 0
+    page_tags = get_tag('a', body, re.compile('.' + PAGE_KEY + '.'))
+    page_tags = list({x : x.get('href') for x in page_tags}.values())
     result = list()
-    for x in page_href :
-        ex_page = x[x.find(PAGE_KEY) + 6:] # page로 추정되는 위치의 문자열 추출
+    for _tag in page_tags :
+        ex_page = _tag[_tag.find(PAGE_KEY) + 6:] # page로 추정되는 위치의 문자열 추출
         if ex_page.isdigit() : # 문자열이 숫자일때
             result.append(int(ex_page)) # 문자열을 숫자로 형변환후 저장
-    return result # 저장된 페이지 리스트 반환
+    return (min(result), max(result)) if len(result) > 0 else (0, 0) # 저장된 페이지 리스트 반환
 
 def get_item(xurl, xlen) :
-    # 페이지 상품수가 가장 많이 담길때만 xlen 갱신.
-    # 품절이 xlen과 같으면 스킵
-    result = list()
-    conds = {'soldout', 'sellout', '품절'}
     body = get_bodytag(xurl)
+    if body == None :
+        return
 
-    cnods_match = [body.prettify().count(x) for x in conds]
-    if xlen != 0 and max(cnods_match) >= xlen :
-        return result
+    page_matchs = [body.prettify().count(x) for x in SOLDOUT_KEY] # body에서 품절키를 카운트
+    if xlen != 0 and max(page_matchs) >= xlen : # 상품 최대 개수 이상일때 검색하지 않음
+        return # 검색마다 최대 100개의 상품이 검색될때 100개의 품절키가 검색되면 페이지 내 모든 상품이 품절이라 가정
 
-    item_href = get_href_parent(body, re.compile('.' + ITEM_KEY + '.'), conds)
+    items = list() # 판매 가능한 아이템 리스트
+    item_tags = get_tag_parent('a', body, ITEM_KEY)
+    for _tag in item_tags :
+        result = _tag.get('tag').prettify() # 현재 태그 정보를 저장
+        next_tag = _tag.get('tag').next_siblings # 다음 태그정보 포인트
+        if next_tag != None : # 다음 태그가 존재할때
+            for _next in next_tag :
+                result += _next.prettify() if str(type(_next)) == "<class 'bs4.element.Tag'>" else _next # 다음 태그 정보들을 저장
 
-    for _item in  item_href:
-        num_start = _item.find(ITEM_KEY) + len(ITEM_KEY) # 상품 번호 시작위치
-        num_end = _item.find(ITEM_END_KEY, num_start) # 상품번호 종료 위치
-        num_item = _item[num_start : num_end] # 상품번호로 추측되는 번호 추출
-        if num_item.isdigit() and num_item not in (x for x in result) : # 추출한 상품 번호가 숫자이며, result의 원소들이 문자열을 포함하지 않을때
-            result.append(_item) # 상품번호 중복이 없는 href만 저장
-    return result
+        item_matchs = [result.count(x) for x in SOLDOUT_KEY]
+        if max(item_matchs) == 0 :
+            if _tag.get('parent') > 0 :
+                items.append(_tag.get('tag').get('href'))
+            else :
+                a_tag = get_tag('a', _tag.get('tag'), ITEM_KEY)
+                items.append(a_tag[0].get('href'))
+    # for _href in  items:
+    #     num_start = _href.find(ITEM_KEY) + len(ITEM_KEY) # 상품 번호 시작위치
+    #     num_end = _href.find(ITEM_END_KEY, num_start) # 상품번호 종료 위치
+    #     num_item = _href[num_start : num_end] # 상품번호로 추측되는 번호 추출
+    #     if num_item.isdigit() and num_item not in (x for x in result) : # 추출한 상품 번호가 숫자이며, result의 원소들이 문자열을 포함하지 않을때
+    #         result.append(_href) # 상품번호 중복이 없는 href만 저장
+    return items
     
 def get_fullitem(xshop) :
     for _cate in xshop.cates :
@@ -173,24 +173,25 @@ def get_fullitem(xshop) :
             vvvvvadsf = 123
         pages = get_page(cate_url) # i번째 카테고리에서 페이지를 불러옴
         in_page = 0
-        if len(pages) > 0 : 
-            cate_items = list() # i번째 카테고리 내 모든 페이지의 상품 url, 상품 번호 
-            print('\t%d ~ %d pages' % (min(pages), max(pages)))
-            for page in range(min(pages), max(pages)) : # 첫번째 페이지부터 마지막 페이지까지 탐색
-                page_items = get_item(cate_url + PAGE_KEY + str(page), in_page)
-                if len(page_items) == 0 : # 페이지에 상품이 없으면 검색을 카테고리 검색을 중지
-                    break
-                in_page = len(page_items) if len(page_items) >= in_page else in_page
-                cate_items.extend(page_items) # 아이템 탐색결과 저장
-            if len(cate_items) > 0 :
-                _cate['itmes'] = cate_items
-            print('\t%sea' % len(cate_items))
+
+        cate_items = list() # i번째 카테고리 내 모든 페이지의 상품 url, 상품 번호 
+        start_time = time.time() # 상품 검색 시간 측정
+        print('\t%d ~ %d pages' % (pages))
+        for page in range(pages[0], pages[-1]) : # 첫번째 페이지부터 마지막 페이지까지 탐색
+            page_items = get_item(cate_url + PAGE_KEY + str(page), in_page)
+            if page_items == None or len(page_items) == 0 : # 페이지에 상품이 없으면 검색을 카테고리 검색을 중지
+                break
+            in_page = len(page_items) if len(page_items) >= in_page else in_page
+            cate_items.extend(page_items) # 아이템 탐색결과 저장
+        if len(cate_items) > 0 :
+            _cate['itmes'] = cate_items
+        print('\t%sea, %4fsec' % (len(cate_items), time.time() - start_time))
     return
 
 if __name__ == '__main__' :
     shop_list = list() # shop list, must started http://, ended /
-    shop_list.append(Shop("http://www.da-sara.com/"))
-    shop_list.append(Shop("http://www.swingingseoul.com/"))
+    # shop_list.append(Shop("http://www.da-sara.com/"))
+    # shop_list.append(Shop("http://www.swingingseoul.com/"))
     shop_list.append(Shop("http://www.smoothie-star.com/"))
     shop_list.append(Shop("http://www.melodystyle.co.kr/"))
     shop_list.append(Shop("http://www.drvtg.co.kr/")) # 카테고리에 브랜드 카테고리까지 있음
